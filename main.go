@@ -13,15 +13,25 @@ import (
 	"github.com/endocrimes/keylight-go"
 )
 
-var args struct {
-	Brightness  uint
-	Temperature uint
-	Timeout     time.Duration
-	Verbose     bool
-	Debug       bool
-}
+var (
+	Version = "0.0.1"
+	args    struct {
+		Brightness  uint
+		Temperature uint
+		Timeout     time.Duration
+		Verbose     bool
+		Debug       bool
+	}
+)
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "keylightctl v%s\n\n", Version)
+		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "Options:")
+		flag.PrintDefaults()
+	}
+
 	flag.UintVar(&args.Brightness, "b", 0, "Brightness (in percent)")
 	flag.UintVar(&args.Temperature, "k", 0, "Temperature (in Kelvin)")
 	flag.DurationVar(&args.Timeout, "t", 10*time.Second, "Discovery timeout")
