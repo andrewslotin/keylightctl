@@ -54,44 +54,15 @@ func main() {
 	log.SetOutput(llog.NewWriter(os.Stderr, logLevel))
 
 	ctx, cancel := context.WithTimeout(context.Background(), args.Timeout)
-	light, err := discoverDevice(ctx)
+	device, err := discoverDevice(ctx)
 	if err != nil {
 		log.Fatalf("failed to discover device: %s", err)
 	}
 	cancel()
 
-	log.Println("debug: found light ", light.Name, light.DNSAddr)
-
-	opts, err := light.FetchLightGroup(context.Background())
-	if err != nil {
-		log.Fatalf("failed to fetch options: %s", err)
-	}
-
-	for i, light := range opts.Lights {
-		log.Printf("light %d before: %d%% %dK", i+1, light.Brightness, convertTemp(light.Temperature))
-	}
-
-	opts = opts.Copy()
-	for _, light := range opts.Lights {
-		if args.Brightness > 0 {
-			light.Brightness = int(args.Brightness)
-		}
-		if args.Temperature > 0 {
-			light.Temperature = 1000000 / int(args.Temperature)
-		}
-	}
-
-	if _, err := light.UpdateLightGroup(context.Background(), opts); err != nil {
-		log.Fatalf("failed to update light group: %s", err)
-	}
-
-	opts, err = light.FetchLightGroup(context.Background())
-	if err != nil {
-		log.Fatalf("failed to fetch options: %s", err)
-	}
-
-	for i, light := range opts.Lights {
-		log.Printf("light %d after: %d%% %dK", i+1, light.Brightness, convertTemp(light.Temperature))
+	log.Println("debug: found light ", device.Name, device.DNSAddr)
+	if err := updateDeviceSettings(context.Background(), device, args.Brightness, args.Temperature); err != nil {
+		log.Fatalf("failed to update device %s settings: %s", device.DNSAddr, err)
 	}
 }
 
@@ -117,6 +88,42 @@ func discoverDevice(ctx context.Context) (*keylight.Device, error) {
 	}
 
 	return light, nil
+}
+
+func updateDeviceSettings(ctx context.Context, device *keylight.Device, brightness, temperature uint) error {
+	opts, err := device.FetchLightGroup(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch options: %w", err)
+	}
+
+	for i, light := range opts.Lights {
+		log.Printf("%s light #%d before: %d%% %dK", device.DNSAddr, i+1, light.Brightness, convertTemp(light.Temperature))
+	}
+
+	opts = opts.Copy()
+	for _, light := range opts.Lights {
+		if args.Brightness > 0 {
+			light.Brightness = int(args.Brightness)
+		}
+		if args.Temperature > 0 {
+			light.Temperature = 1000000 / int(args.Temperature)
+		}
+	}
+
+	if _, err := device.UpdateLightGroup(ctx, opts); err != nil {
+		return fmt.Errorf("failed to update light group: %w", err)
+	}
+
+	opts, err = device.FetchLightGroup(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch options: %w", err)
+	}
+
+	for i, light := range opts.Lights {
+		log.Printf("%s light #%d after: %d%% %dK", device.DNSAddr, i+1, light.Brightness, convertTemp(light.Temperature))
+	}
+
+	return nil
 }
 
 // The 'Control Center' UI only allows color temperature changes from 2900K - 7000K in 50K increments.
