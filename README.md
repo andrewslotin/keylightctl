@@ -17,7 +17,9 @@ This will install the `keylightctl` binary into your `$GOPATH/bin` directory.
 Usage
 -----
 
-At the moment, `keylightctl` only supports controlling a single Key Light by setting its brightness and color temperature. The following command would set the brightness to 50% and the color temperature to 4500K:
+`keylightctl` performs a discovery to find the first Key Light on your network. If you have multiple Key Lights, you can specify the IP addresses of those you want to control as arguments in following format: `<ip:port>`. The default port is `9123`.
+
+The following command would set the brightness to 50% and the color temperature to 4500K:
 
 ```bash
 keylightctl -b 50 -k 4500

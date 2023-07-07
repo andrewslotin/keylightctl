@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
 	"os"
 	"time"
 
@@ -29,7 +30,7 @@ var (
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "keylightctl v%s\n\n", Version)
-		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [<host:port>[, ...]]\n", os.Args[0])
 		fmt.Fprintln(os.Stderr, "Options:")
 		flag.PrintDefaults()
 	}
@@ -53,16 +54,42 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(llog.NewWriter(os.Stderr, logLevel))
 
-	ctx, cancel := context.WithTimeout(context.Background(), args.Timeout)
-	device, err := discoverDevice(ctx)
-	if err != nil {
-		log.Fatalf("failed to discover device: %s", err)
-	}
-	cancel()
+	var devices []*keylight.Device
+	for _, arg := range flag.Args() {
+		host, portStr, err := net.SplitHostPort(arg)
+		if err != nil {
+			log.Fatalf("failed to parse %q: %s", arg, err)
+		}
 
-	log.Println("debug: found light ", device.Name, device.DNSAddr)
-	if err := updateDeviceSettings(context.Background(), device, args.Brightness, args.Temperature); err != nil {
-		log.Fatalf("failed to update device %s settings: %s", device.DNSAddr, err)
+		port, err := net.LookupPort("tcp", portStr)
+		if err != nil {
+			log.Fatalf("failed to lookup port %q: %s", portStr, err)
+		}
+
+		devices = append(devices, &keylight.Device{
+			Name:    "User-specified device",
+			DNSAddr: host,
+			Port:    port,
+		})
+	}
+
+	if len(devices) == 0 {
+		log.Printf("debug: no devices specified via the command-line, using the discovery")
+		ctx, cancel := context.WithTimeout(context.Background(), args.Timeout)
+		device, err := discoverDevice(ctx)
+		if err != nil {
+			log.Fatalf("failed to discover device: %s", err)
+		}
+		cancel()
+
+		devices = append(devices, device)
+	}
+
+	for _, device := range devices {
+		log.Println("debug: found light ", device.Name, device.DNSAddr)
+		if err := updateDeviceSettings(context.Background(), device, args.Brightness, args.Temperature); err != nil {
+			log.Fatalf("failed to update device %s settings: %s", device.DNSAddr, err)
+		}
 	}
 }
 
