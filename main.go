@@ -22,6 +22,8 @@ var (
 		Verbose     bool
 		Debug       bool
 	}
+
+	ErrNoLights = fmt.Errorf("no lights found")
 )
 
 func main() {
@@ -51,29 +53,12 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(llog.NewWriter(os.Stderr, logLevel))
 
-	discovery, err := keylight.NewDiscovery()
+	ctx, cancel := context.WithTimeout(context.Background(), args.Timeout)
+	light, err := discoverDevice(ctx)
 	if err != nil {
-		log.Fatalf("failed to create discovery: %s", err)
+		log.Fatalf("failed to discover device: %s", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func(ctx context.Context) {
-		dCtx, cancel := context.WithTimeout(context.Background(), args.Timeout)
-		defer cancel()
-
-		log.Printf("debug: running discovery (timeout %s)...", args.Timeout)
-		if err := discovery.Run(dCtx); err != nil {
-			log.Fatalf("failed to run discovery: %s", err)
-		}
-	}(ctx)
-
-	light, ok := <-discovery.ResultsCh()
 	cancel()
-
-	if !ok {
-		fmt.Fprintln(os.Stderr, "no lights found")
-		os.Exit(1)
-	}
 
 	log.Println("debug: found light ", light.Name, light.DNSAddr)
 
@@ -108,6 +93,30 @@ func main() {
 	for i, light := range opts.Lights {
 		log.Printf("light %d after: %d%% %dK", i+1, light.Brightness, convertTemp(light.Temperature))
 	}
+}
+
+func discoverDevice(ctx context.Context) (*keylight.Device, error) {
+	discovery, err := keylight.NewDiscovery()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		log.Printf("debug: running discovery (timeout %s)...", args.Timeout)
+		if err := discovery.Run(ctx); err != nil {
+			log.Fatalf("failed to run discovery: %s", err)
+		}
+	}()
+
+	light, ok := <-discovery.ResultsCh()
+	cancel()
+
+	if !ok {
+		return nil, ErrNoLights
+	}
+
+	return light, nil
 }
 
 // The 'Control Center' UI only allows color temperature changes from 2900K - 7000K in 50K increments.
