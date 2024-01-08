@@ -31,6 +31,14 @@ Any of the flags can be omitted, in which case the corresponding setting will no
 keylightctl -b 50
 ```
 
+To turn the light off, set the brightness to 0 by running:
+
+```bash
+keylightctl -b 0
+```
+
+To turn the light on, set the brightness to a value greater than 0.
+
 To see all available flags, run:
 
 ```bash

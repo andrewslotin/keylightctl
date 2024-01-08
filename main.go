@@ -14,14 +14,20 @@ import (
 	"github.com/endocrimes/keylight-go"
 )
 
+const (
+	tempSetFlag uint8 = 1 << iota
+	brightnessSetFlag
+)
+
 var (
 	Version = "0.0.2"
 	args    struct {
-		Brightness  uint
-		Temperature uint
-		Timeout     time.Duration
-		Verbose     bool
-		Debug       bool
+		ProvidedSettings uint8
+		Brightness       uint
+		Temperature      uint
+		Timeout          time.Duration
+		Verbose          bool
+		Debug            bool
 	}
 
 	ErrNoLights = fmt.Errorf("no lights found")
@@ -41,6 +47,17 @@ func main() {
 	flag.BoolVar(&args.Verbose, "v", false, "Verbose output")
 	flag.BoolVar(&args.Debug, "vv", false, "Debug output")
 	flag.Parse()
+
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "b":
+			log.Printf("brightness is set")
+			args.ProvidedSettings |= brightnessSetFlag
+		case "k":
+			log.Printf("temp is set")
+			args.ProvidedSettings |= tempSetFlag
+		}
+	})
 
 	logLevel := llog.WarnLevel
 	if args.Verbose {
@@ -85,9 +102,18 @@ func main() {
 		devices = append(devices, device)
 	}
 
+	var config []configurator
+	if args.ProvidedSettings&brightnessSetFlag != 0 {
+		config = append(config, brightnessConfigurator(args.Brightness))
+	}
+
+	if args.ProvidedSettings&tempSetFlag != 0 {
+		config = append(config, temperatureConfigurator(args.Temperature))
+	}
+
 	for _, device := range devices {
 		log.Println("debug: found light ", device.Name, device.DNSAddr)
-		if err := updateDeviceSettings(context.Background(), device, args.Brightness, args.Temperature); err != nil {
+		if err := updateDeviceSettings(context.Background(), device, config); err != nil {
 			log.Fatalf("failed to update device %s settings: %s", device.DNSAddr, err)
 		}
 	}
@@ -117,23 +143,20 @@ func discoverDevice(ctx context.Context) (*keylight.Device, error) {
 	return light, nil
 }
 
-func updateDeviceSettings(ctx context.Context, device *keylight.Device, brightness, temperature uint) error {
+func updateDeviceSettings(ctx context.Context, device *keylight.Device, config []configurator) error {
 	opts, err := device.FetchLightGroup(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch options: %w", err)
 	}
 
 	for i, light := range opts.Lights {
-		log.Printf("%s light #%d before: %d%% %dK", device.DNSAddr, i+1, light.Brightness, convertTemp(light.Temperature))
+		log.Printf("%s light #%d (%d) before: %d%% %dK", device.DNSAddr, i+1, light.On, light.Brightness, convertTemp(light.Temperature))
 	}
 
 	opts = opts.Copy()
 	for _, light := range opts.Lights {
-		if args.Brightness > 0 {
-			light.Brightness = int(args.Brightness)
-		}
-		if args.Temperature > 0 {
-			light.Temperature = 1000000 / int(args.Temperature)
+		for _, c := range config {
+			c(light)
 		}
 	}
 
@@ -147,10 +170,24 @@ func updateDeviceSettings(ctx context.Context, device *keylight.Device, brightne
 	}
 
 	for i, light := range opts.Lights {
-		log.Printf("%s light #%d after: %d%% %dK", device.DNSAddr, i+1, light.Brightness, convertTemp(light.Temperature))
+		log.Printf("%s light #%d (%d) after: %d%% %dK", device.DNSAddr, i+1, light.On, light.Brightness, convertTemp(light.Temperature))
 	}
 
 	return nil
+}
+
+type configurator func(l *keylight.Light)
+
+func brightnessConfigurator(brightness uint) configurator {
+	return func(l *keylight.Light) {
+		l.Brightness = int(brightness)
+	}
+}
+
+func temperatureConfigurator(temperature uint) configurator {
+	return func(l *keylight.Light) {
+		l.Temperature = int(1000000 / temperature)
+	}
 }
 
 // The 'Control Center' UI only allows color temperature changes from 2900K - 7000K in 50K increments.
